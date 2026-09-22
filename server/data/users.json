@@ -1,0 +1,11 @@
+{
+  "testuser": {
+    "userId": "u_0ddf8b6f0fa2",
+    "username": "testuser",
+    "nickname": "광부철수",
+    "salt": "b582d6064d8042bc24057e899b9eba1a",
+    "passwordHash": "bd8b82790acd70600c9a98f27f680245b8c3e47cad00731759d6c255aaf31131eac607ae49656f242368badd55491a875f677176e21feb783d98ff91b1b51427",
+    "activeRoomId": "room_123",
+    "createdAt": "2026-09-22T06:14:43.586Z"
+  }
+}
