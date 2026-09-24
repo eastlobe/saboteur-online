@@ -1,0 +1,1501 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>사보타지 (SABOTEUR) - 1800s 광산의 비밀</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    if (typeof io === 'undefined') {
+      document.write('<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"><\/script>');
+    }
+  </script>
+  <style>
+    :root {
+      --parchment: #e2ceaa;
+      --parchment-border: #6d431c;
+      --cave-bg: #140e0b;
+      --wood-dark: #2c1a11;
+      --wood-light: #4a2e1d;
+      --gold: #f5b027;
+      --miner-blue: #1565c0;
+      --saboteur-red: #c62828;
+      --text-main: #f5edd6;
+      --text-dark: #2c1a11;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; font-family: 'Georgia', 'Noto Serif KR', serif; }
+
+    body {
+      background-color: var(--cave-bg);
+      color: var(--text-main);
+      background-image: 
+        radial-gradient(circle at 50% 25%, rgba(93, 58, 41, 0.45) 0%, rgba(10, 7, 6, 0.98) 85%),
+        repeating-linear-gradient(45deg, rgba(0,0,0,0.08) 0px, rgba(0,0,0,0.08) 2px, transparent 2px, transparent 4px);
+      height: 100vh;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    header {
+      background: linear-gradient(180deg, #26160e 0%, #150c08 100%);
+      border-bottom: 2px solid var(--parchment-border);
+      padding: 6px 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.8);
+      z-index: 10;
+      flex-shrink: 0;
+    }
+
+    .brand-title { font-size: 1.1rem; font-weight: bold; color: var(--gold); letter-spacing: 1px; text-shadow: 1px 1px 3px #000; }
+    .user-pill { font-size: 0.8rem; background: rgba(0,0,0,0.5); border: 1px solid #8d6e63; padding: 3px 8px; border-radius: 12px; display: flex; align-items: center; gap: 6px; }
+
+    .btn-wood {
+      background: linear-gradient(180deg, #6d431c 0%, #3e240f 100%);
+      color: var(--parchment);
+      border: 2px solid #8b5a2b;
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-weight: bold;
+      cursor: pointer;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.2), 0 2px 4px rgba(0,0,0,0.6);
+      transition: all 0.15s ease;
+      font-size: 0.85rem;
+      white-space: nowrap;
+    }
+    .btn-wood:hover:not(:disabled) { background: linear-gradient(180deg, #855325 0%, #4e2e13 100%); }
+    .btn-wood:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    .view-container { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 10px; width: 100%; overflow: hidden; position: relative; }
+
+    .parchment-card {
+      background: var(--parchment);
+      color: var(--text-dark);
+      border: 3px solid var(--parchment-border);
+      border-radius: 8px;
+      box-shadow: 0 0 0 2px #2c1a11, 0 12px 36px rgba(0,0,0,0.85), inset 0 0 50px rgba(109, 67, 28, 0.35);
+      padding: 20px;
+      width: 100%;
+      max-width: 440px;
+      position: relative;
+    }
+
+    .form-group { margin-bottom: 12px; text-align: left; }
+    .form-group label { display: block; font-size: 0.85rem; font-weight: bold; color: #3e240f; margin-bottom: 4px; }
+    .form-control { width: 100%; padding: 8px 10px; background: #faf4e8; border: 2px solid #8b5a2b; border-radius: 4px; font-size: 0.95rem; outline: none; }
+
+    #lobby-view { max-width: 820px; width: 100%; height: 100%; display: flex; flex-direction: column; gap: 12px; justify-content: flex-start; overflow-y: auto; }
+    .lobby-header { display: flex; justify-content: space-between; align-items: center; background: rgba(38, 22, 14, 0.9); border: 2px solid var(--wood-light); padding: 10px 16px; border-radius: 8px; }
+    .room-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; width: 100%; }
+    .room-card { background: linear-gradient(135deg, #2b170c 0%, #170d06 100%); border: 2px solid #5d381e; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; justify-content: space-between; }
+
+    /* ========================================================= */
+    /* 상하 분할 채팅 레이아웃 (사용자 스케치 완벽 구현) */
+    /* ========================================================= */
+    #game-container-master {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* 게임 화면 본체 */
+    #game-view {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      overflow: hidden;
+      transition: height 0.25s cubic-bezier(0.2, 0.9, 0.3, 1);
+    }
+
+    /* 채팅창이 열렸을 때: 상단 50% 게임화면 + 하단 50% 채팅창 */
+    #game-container-master.chat-split-active #game-view {
+      height: 50% !important;
+      flex: none;
+    }
+
+    #split-chat-panel {
+      width: 100%;
+      height: 50%;
+      background: linear-gradient(180deg, #2a180f 0%, #140b07 100%);
+      border-top: 3px solid var(--gold);
+      display: none;
+      flex-direction: column;
+      z-index: 40;
+      box-shadow: 0 -8px 24px rgba(0,0,0,0.85);
+    }
+
+    #game-container-master.chat-split-active #split-chat-panel {
+      display: flex !important;
+    }
+
+    .split-chat-header {
+      background: #1c100a;
+      border-bottom: 1px solid var(--parchment-border);
+      padding: 6px 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .chat-messages-box {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 0.85rem;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .chat-msg-line {
+      display: flex;
+      gap: 6px;
+      line-height: 1.3;
+      word-break: break-all;
+    }
+    .chat-msg-sender { font-weight: bold; color: var(--gold); white-space: nowrap; }
+    .chat-msg-sender.is-obs { color: #81d4fa; }
+    .chat-msg-text { color: #f5edd6; }
+    .chat-msg-time { font-size: 0.7rem; color: #8d6e63; margin-left: auto; }
+
+    .chat-input-bar {
+      padding: 6px 10px;
+      background: #1c100a;
+      border-top: 1px solid #4a2e1d;
+      display: flex;
+      gap: 8px;
+    }
+
+    /* 게임 상태 바 */
+    .game-status-bar {
+      background: rgba(22, 13, 8, 0.95);
+      border-bottom: 2px solid #4a2e1d;
+      padding: 4px 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.8rem;
+      flex-shrink: 0;
+    }
+
+    .status-highlight { color: var(--gold); font-weight: bold; }
+    .turn-indicator { padding: 3px 10px; border-radius: 14px; font-weight: bold; font-size: 0.75rem; white-space: nowrap; }
+    .turn-mine { background: #2e7d32; color: #fff; border: 1px solid #81c784; }
+    .turn-other { background: #455a64; color: #cfd8dc; border: 1px solid #78909c; }
+
+    .discard-pile-box { display: flex; align-items: center; gap: 4px; background: rgba(0,0,0,0.4); border: 1px solid #5d381e; padding: 2px 6px; border-radius: 4px; cursor: pointer; }
+    .discard-mini-preview { width: 18px; height: 26px; border-radius: 2px; border: 1px solid var(--parchment-border); display: flex; align-items: center; justify-content: center; background: #3e240f; color: var(--gold); font-size: 0.7rem; }
+
+    .game-middle-area { flex: 1; display: flex; gap: 6px; overflow: hidden; margin: 2px 0; }
+
+    /* 보드판: 2:3 세로 직사각형 타일 그리드! */
+    .board-scroll-wrapper {
+      flex: 1;
+      background: radial-gradient(circle at center, #23140c 0%, #0d0704 100%);
+      border: 2px solid #4a2e1d;
+      border-radius: 6px;
+      overflow: auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 14px;
+      touch-action: pan-x pan-y;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .board-grid {
+      display: grid;
+      grid-template-columns: repeat(11, 52px);
+      grid-template-rows: repeat(9, 74px);
+      gap: 4px;
+      background: rgba(10, 6, 4, 0.75);
+      padding: 6px;
+      border-radius: 6px;
+    }
+
+    .board-cell {
+      width: 52px;
+      height: 74px;
+      background: rgba(35, 20, 12, 0.45);
+      border: 1px dashed rgba(141, 95, 50, 0.25);
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+    .board-cell.valid-target { background: rgba(245, 176, 39, 0.25); border: 2px dashed var(--gold); cursor: pointer; }
+    .board-cell.rockfall-target { background: rgba(198, 40, 40, 0.3); border: 2px dashed var(--saboteur-red); cursor: pointer; }
+
+    .dest-card-hidden {
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(135deg, #422514 0%, #1f0f06 100%);
+      border: 2px solid #8b5a2b;
+      border-radius: 4px;
+      color: var(--gold);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+    .dest-card-hidden.clickable-dest { border: 2px solid var(--gold); cursor: pointer; }
+    .dest-inspected-tag {
+      position: absolute;
+      bottom: 2px;
+      left: 2px;
+      right: 2px;
+      background: rgba(0, 0, 0, 0.85);
+      color: #ffecb3;
+      font-size: 0.5rem;
+      border-radius: 2px;
+      text-align: center;
+      padding: 1px;
+      border: 1px solid var(--gold);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .players-sidebar {
+      width: 220px;
+      background: rgba(28, 16, 10, 0.92);
+      border: 2px solid #4a2e1d;
+      border-radius: 6px;
+      padding: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      overflow-y: auto;
+      flex-shrink: 0;
+    }
+
+    .player-row {
+      background: rgba(18, 10, 6, 0.88);
+      border: 1px solid #4e301d;
+      border-radius: 5px;
+      padding: 5px 7px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      font-size: 0.78rem;
+      position: relative;
+    }
+    .player-row.is-current-turn { border-color: var(--gold); background: rgba(85, 48, 22, 0.4); }
+    .player-row.targetable { border: 2px dashed var(--gold); cursor: pointer; background: rgba(245, 176, 39, 0.18); }
+
+    /* 고장난 도구 ❌ 오버레이 스타일 (공식 요구사항 2번) */
+    .tool-box {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .tool-icon-wrapper {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.95rem;
+    }
+    .tool-icon-wrapper.broken::after {
+      content: '❌';
+      position: absolute;
+      font-size: 0.8rem;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      filter: drop-shadow(0 0 2px #000);
+    }
+    .tool-icon-wrapper.broken {
+      filter: grayscale(80%) brightness(0.6);
+    }
+
+    .speech-bubble {
+      position: absolute;
+      top: -16px;
+      right: 8px;
+      background: #fff;
+      color: #000;
+      font-size: 1.2rem;
+      padding: 1px 6px;
+      border-radius: 12px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.7);
+      pointer-events: none;
+      z-index: 50;
+      border: 2px solid var(--parchment-border);
+    }
+
+    /* 하단 조작 바 */
+    .player-hand-panel {
+      background: linear-gradient(180deg, #24140b 0%, #120a06 100%);
+      border-top: 2px solid #4a2e1d;
+      padding: 4px 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+
+    .hand-header { display: flex; justify-content: space-between; align-items: center; font-size: 0.78rem; gap: 4px; }
+
+    .role-badge { font-weight: bold; padding: 2px 7px; border-radius: 10px; font-size: 0.72rem; }
+    .role-miner { background: var(--miner-blue); color: #fff; }
+    .role-saboteur { background: var(--saboteur-red); color: #fff; }
+
+    .hand-cards-list {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      padding: 3px 2px;
+      align-items: center;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    /* 손패 카드 (직사각형 72px x 108px) */
+    .hand-card-item {
+      width: 72px;
+      height: 108px;
+      background: var(--parchment);
+      color: var(--text-dark);
+      border: 2px solid var(--parchment-border);
+      border-radius: 5px;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 4px 3px;
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+      transition: transform 0.1s ease;
+    }
+    .hand-card-item.selected { border: 2.5px solid var(--gold); transform: translateY(-5px); box-shadow: 0 0 10px var(--gold); }
+
+    .card-name-mini {
+      font-size: 0.65rem;
+      font-weight: bold;
+      text-align: center;
+      line-height: 1.1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: #2c1a11;
+    }
+    .card-graphic-container {
+      width: 48px;
+      height: 64px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.8);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      padding: 12px;
+      backdrop-filter: blur(2px);
+    }
+    .hidden { display: none !important; }
+
+    #toast {
+      position: fixed;
+      top: 50px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(36, 20, 11, 0.96);
+      color: var(--parchment);
+      border: 2px solid var(--gold);
+      padding: 6px 16px;
+      border-radius: 16px;
+      font-size: 0.85rem;
+      font-weight: bold;
+      z-index: 200;
+      pointer-events: none;
+    }
+
+    /* 역할 배분 플립(Flip) 애니메이션 카드 */
+    .role-flip-card-wrapper {
+      perspective: 1000px;
+      width: 140px;
+      height: 200px;
+      margin: 14px auto;
+    }
+    .role-flip-card {
+      width: 100%;
+      height: 100%;
+      position: relative;
+      transform-style: preserve-3d;
+      animation: flipReveal 1.2s cubic-bezier(0.2, 0.8, 0.3, 1) forwards;
+    }
+    @keyframes flipReveal {
+      0% { transform: rotateY(0deg) scale(0.7); }
+      50% { transform: rotateY(90deg) scale(1.1); }
+      100% { transform: rotateY(180deg) scale(1); }
+    }
+    .role-card-face {
+      position: absolute;
+      inset: 0;
+      backface-visibility: hidden;
+      border-radius: 8px;
+      border: 3px solid var(--parchment-border);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 10px;
+      text-align: center;
+    }
+    .role-card-back { background: #3e240f; color: var(--gold); }
+    .role-card-front { transform: rotateY(180deg); background: var(--parchment); color: var(--text-dark); }
+
+    .gold-draft-card {
+      width: 70px;
+      height: 104px;
+      background: linear-gradient(135deg, #fff9c4 0%, #ffe082 100%);
+      border: 2.5px solid #f57f17;
+      border-radius: 5px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.5);
+    }
+
+    @media (max-width: 768px) {
+      .game-middle-area { flex-direction: column; }
+      .players-sidebar {
+        width: 100%;
+        height: 72px;
+        flex-direction: row;
+        overflow-x: auto;
+        overflow-y: hidden;
+        padding: 4px;
+      }
+      .player-row { width: 135px; flex-shrink: 0; padding: 4px 6px; font-size: 0.72rem; }
+      .board-grid {
+        grid-template-columns: repeat(11, 44px);
+        grid-template-rows: repeat(9, 62px);
+        gap: 3px;
+        padding: 4px;
+      }
+      .board-cell { width: 44px; height: 62px; }
+      .hand-card-item { width: 66px; height: 100px; padding: 3px; }
+      .card-graphic-container { width: 42px; height: 56px; }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand-title">⛏️ SABOTEUR <span style="font-size: 0.7rem; color: #a1887f;">1800s 광산의 비밀</span></div>
+    <div style="display: flex; gap: 6px; align-items: center;">
+      <button class="btn-wood" style="padding: 2px 8px; font-size: 0.75rem;" onclick="toggleChatSplit()">💬 채팅</button>
+      <div id="header-user-info" class="user-pill hidden">
+        <span id="header-nickname">광부</span>
+        <button class="btn-wood" style="padding: 2px 6px; font-size: 0.7rem;" onclick="logout()">로그아웃</button>
+      </div>
+    </div>
+  </header>
+
+  <div id="toast" class="hidden"></div>
+
+  <main class="view-container">
+
+    <!-- 1. 로그인 / 회원가입 뷰 -->
+    <div id="auth-view" class="parchment-card">
+      <h2 style="text-align: center; margin-bottom: 14px; color: #2c1a11; border-bottom: 2px solid #6d431c; padding-bottom: 6px; font-size: 1.25rem;">광산 출입 인가증</h2>
+      <div class="form-group">
+        <label>광부 식별자 (아이디)</label>
+        <input type="text" id="auth-username" class="form-control" placeholder="아이디 입력" autocomplete="off">
+      </div>
+      <div class="form-group">
+        <label>비밀 암호</label>
+        <input type="password" id="auth-password" class="form-control" placeholder="비밀번호 입력">
+      </div>
+      <div id="nickname-group" class="form-group hidden">
+        <label>광산 칭호 (닉네임)</label>
+        <input type="text" id="auth-nickname" class="form-control" placeholder="표시될 이름">
+      </div>
+      <div style="display: flex; gap: 8px; margin-top: 16px;">
+        <button id="btn-login-submit" class="btn-wood" style="flex: 1; padding: 10px;" onclick="submitAuth()">로그인</button>
+        <button id="btn-toggle-register" class="btn-wood" style="flex: 1; padding: 10px; background: #4a2e1d;" onclick="toggleAuthMode()">새 광부 등록</button>
+      </div>
+    </div>
+
+    <!-- 2. 로비 뷰 -->
+    <div id="lobby-view" class="hidden">
+      <div class="lobby-header">
+        <div>
+          <h3 style="color: var(--gold); margin-bottom: 2px; font-size: 1rem;">지하 광구 대기소</h3>
+          <p style="font-size: 0.75rem; color: #bcaaa4;">원하는 광산에 입장하거나 새 탐사를 시작하세요.</p>
+        </div>
+        <div style="display: flex; gap: 6px;">
+          <button class="btn-wood" onclick="refreshRooms()">새로고침 🔄</button>
+          <button class="btn-wood" onclick="showCreateRoomModal()">광산 개척 ⛏️</button>
+        </div>
+      </div>
+      <div id="room-list-container" class="room-grid"></div>
+    </div>
+
+    <!-- 3. 대기실 뷰 (동적 인원 3~10인 + 지도 개수 조절) -->
+    <div id="waiting-view" class="parchment-card hidden" style="max-width: 480px;">
+      <h3 id="waiting-room-name" style="text-align: center; color: #2c1a11; margin-bottom: 4px;"></h3>
+      <p id="waiting-room-info" style="text-align: center; font-size: 0.8rem; color: #4a2e1d; margin-bottom: 12px;"></p>
+      
+      <!-- 방장 전용 지도 개수 조절 옵션 -->
+      <div id="host-map-settings" style="background:#faf4e8; border:1px solid #8b5a2b; border-radius:4px; padding:8px; margin-bottom:12px; display:none;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <label style="font-size:0.8rem; font-weight:bold; color:#2c1a11;">🗺️ 비밀 지도 장수 (표준 6장):</label>
+          <select id="select-map-count" class="form-control" style="width:70px; padding:4px;" onchange="updateRoomMapSettings()">
+            <option value="6">6장 (표준)</option>
+            <option value="5">5장</option>
+            <option value="4">4장</option>
+            <option value="3">3장</option>
+            <option value="2">2장</option>
+            <option value="1">1장</option>
+            <option value="0">0장 (지도 없음)</option>
+          </select>
+        </div>
+        <p style="font-size:0.7rem; color:#795548; margin-top:4px;">* 빠진 지도 수만큼 아무 효과 없는 '찢어진 지도'가 추가됩니다.</p>
+      </div>
+
+      <div style="font-weight: bold; margin-bottom: 6px; color: #2c1a11; font-size: 0.85rem;">참가자 목록:</div>
+      <div id="waiting-player-list" style="display: flex; flex-direction: column; gap: 4px; margin-bottom: 14px; max-height:160px; overflow-y:auto;"></div>
+
+      <div style="display: flex; gap: 8px;">
+        <button id="btn-start-game" class="btn-wood" style="flex: 2; padding: 10px;" onclick="requestStartGame()">탐사 시작 ⛏️ (최소 3인 필요)</button>
+        <button class="btn-wood" style="flex: 1; padding: 10px; background: #4a2e1d;" onclick="leaveRoom()">나가기</button>
+      </div>
+    </div>
+
+    <!-- 4. 인게임 화면 마스터 컨테이너 (상하 분할 지원) -->
+    <div id="game-container-master" class="hidden">
+      <!-- 위쪽: 게임화면 (채팅창 열리면 50%로 축소) -->
+      <div id="game-view">
+        <div class="game-status-bar">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span id="game-round-info" class="status-highlight">1 / 3 라운드</span>
+            <span style="color: #8d6e63;">|</span>
+            <span>덱: <span id="game-deck-count" class="status-highlight">67</span>장</span>
+            <span style="color: #8d6e63;">|</span>
+            <div class="discard-pile-box" onclick="showDiscardModal()" title="버리는 더미 확인">
+              <span>🗑️ 버린 더미 (<span id="discard-count">0</span>)</span>
+              <div class="discard-mini-preview">🗃️</div>
+            </div>
+          </div>
+
+          <div id="game-turn-badge" class="turn-indicator turn-other">대기 중</div>
+          <div style="max-width: 30%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #d7ccc8; font-size: 0.72rem;" id="game-last-action">광산에 진입했습니다.</div>
+        </div>
+
+        <div class="game-middle-area">
+          <div class="board-scroll-wrapper" id="board-container">
+            <div id="board-grid" class="board-grid"></div>
+          </div>
+          <div class="players-sidebar" id="players-list"></div>
+        </div>
+
+        <div class="player-hand-panel">
+          <div class="hand-header">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span style="color: #bcaaa4;">내 정체:</span>
+              <span id="my-role-badge" class="role-badge role-miner">광부 ⛏️</span>
+              <span style="color: #8d6e63;">|</span>
+              <span style="color: #bcaaa4;">내 금: <strong id="my-gold-total" style="color: var(--gold);">0</strong>개 (<span id="my-gold-card-count">0</span>장)</span>
+            </div>
+
+            <!-- 모바일 세로에서도 절대 잘리지 않는 액션 컨트롤 버튼들 -->
+            <div id="selected-card-controls" style="display: flex; gap: 4px;" class="hidden">
+              <button id="btn-rotate-card" class="btn-wood" style="padding: 3px 6px; font-size: 0.7rem;" onclick="toggleRotateSelectedCard()">180° 회전 🔄</button>
+              <button class="btn-wood" style="padding: 3px 6px; font-size: 0.7rem; background: #c62828;" onclick="discardSelectedCard()">버리기 🗑️</button>
+              <button class="btn-wood" style="padding: 3px 6px; font-size: 0.7rem;" onclick="cancelCardSelection()">취소</button>
+            </div>
+          </div>
+          <div id="my-hand-cards" class="hand-cards-list"></div>
+        </div>
+      </div>
+
+      <!-- 아래쪽: 상하 분할 채팅창 (이미지 스케치 100% 일치) -->
+      <div id="split-chat-panel">
+        <div class="split-chat-header">
+          <span style="font-weight:bold; color:var(--gold); font-size:0.85rem;">💬 광산 통신실</span>
+          <button class="btn-wood" style="padding: 2px 8px; font-size:0.75rem;" onclick="toggleChatSplit()">닫기 ✕</button>
+        </div>
+        <div class="chat-messages-box" id="chat-messages-container"></div>
+        <div class="chat-input-bar">
+          <input type="text" id="chat-input-text" class="form-control" placeholder="메시지 입력..." onkeydown="if(event.key==='Enter') sendChatMessage()">
+          <button class="btn-wood" style="padding: 6px 12px;" onclick="sendChatMessage()">전송</button>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- 방 참가 시 [플레이어 ⛏️ vs 관전자 👁️] 선택 모달 -->
+  <div id="modal-join-choice" class="modal-backdrop hidden">
+    <div class="parchment-card" style="text-align: center; max-width: 380px;">
+      <h3 style="color:#2c1a11; margin-bottom:10px;">광구 진입 방식 선택</h3>
+      <p style="font-size:0.85rem; color:#4a2e1d; margin-bottom:16px;">어떤 역할로 광산에 들어가시겠습니까?</p>
+      <div style="display:flex; flex-direction:column; gap:10px;">
+        <button class="btn-wood" style="padding:12px; font-size:1rem;" onclick="confirmJoinRoom('PLAYER')">⛏️ 광부로 참가 (게임 플레이)</button>
+        <button class="btn-wood" style="padding:12px; font-size:1rem; background:#1e3d59;" onclick="confirmJoinRoom('OBSERVER')">👁️ 관전자로 입장 (채팅 및 구경)</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 방 생성 모달 -->
+  <div id="modal-create-room" class="modal-backdrop hidden">
+    <div class="parchment-card">
+      <h3 style="margin-bottom: 12px; color: #2c1a11; text-align: center;">새 광산 개척</h3>
+      <div class="form-group">
+        <label>광산 이름</label>
+        <input type="text" id="create-room-name" class="form-control" placeholder="예: 황금 광산 7구역">
+      </div>
+      <p style="font-size: 0.78rem; color: #4a2e1d; margin-bottom: 14px;">
+        💡 인원을 미리 정할 필요가 없습니다! 3명 이상 모이면 방장이 언제든 시작할 수 있습니다.
+      </p>
+      <div style="display: flex; gap: 8px;">
+        <button class="btn-wood" style="flex: 1;" onclick="submitCreateRoom()">개척하기</button>
+        <button class="btn-wood" style="flex: 1; background: #4a2e1d;" onclick="closeModal('modal-create-room')">취소</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 버린 카드 확인 모달 (공식 룰: 뒷면으로 버림) -->
+  <div id="modal-discard-detail" class="modal-backdrop hidden">
+    <div class="parchment-card" style="text-align: center; max-width: 360px;">
+      <h3 style="color: #2c1a11; margin-bottom: 8px;">🗑️ 버려진 카드 더미</h3>
+      <div id="discard-detail-content" style="padding: 14px; background: #faf4e8; border: 2px solid #8b5a2b; border-radius: 6px; margin-bottom: 12px;"></div>
+      <button class="btn-wood" style="width: 100%;" onclick="closeModal('modal-discard-detail')">닫기</button>
+    </div>
+  </div>
+
+  <!-- 비밀 지도 확인 모달 (실제 길 모양 시각화) -->
+  <div id="modal-map-peek" class="modal-backdrop hidden">
+    <div class="parchment-card" style="text-align: center; max-width: 380px;">
+      <h3 style="color: #2c1a11; margin-bottom: 8px;">🗺️ 비밀 지도 해독 결과</h3>
+      <p style="font-size: 0.85rem; color: #4a2e1d; margin-bottom: 6px;"><strong id="peek-dest-label">목적지</strong>를 비추어 본 결과:</p>
+      
+      <!-- 세로 직사각형 카드 그래픽 -->
+      <div id="map-peek-card-graphic" style="width: 68px; height: 96px; margin: 10px auto; border: 2px solid #8b5a2b; border-radius: 4px; box-shadow: 0 4px 10px rgba(0,0,0,0.6);"></div>
+      <div id="map-peek-result-text" style="font-size: 1.05rem; font-weight: bold; margin-bottom: 10px;"></div>
+      
+      <p style="font-size: 0.75rem; color: #8d6e63; margin-bottom: 14px;">
+        확인한 목적지 위치는 모두에게 알려졌지만, <strong>실제 길 모양과 정체</strong>는 당신만의 비밀입니다!
+      </p>
+      <button class="btn-wood" style="width: 100%; padding: 8px;" onclick="closeModal('modal-map-peek')">비밀 엄수하고 닫기</button>
+    </div>
+  </div>
+
+  <!-- 역할 배분 3D 플립 애니메이션 팝업 -->
+  <div id="modal-role-reveal" class="modal-backdrop hidden" onclick="closeModal('modal-role-reveal')">
+    <div class="parchment-card" style="text-align: center; max-width: 360px;" onclick="event.stopPropagation()">
+      <h3 style="color: #2c1a11; margin-bottom: 4px;">새 라운드 역할 배분</h3>
+      <p style="font-size: 0.75rem; color: #4a2e1d;">당신의 비밀 정체가 결정되었습니다!</p>
+      
+      <div class="role-flip-card-wrapper">
+        <div class="role-flip-card">
+          <div class="role-card-face role-card-back">
+            <span style="font-size:2.5rem;">⛏️</span>
+            <div style="font-weight:bold; font-size:1.1rem; margin-top:8px;">SABOTEUR</div>
+          </div>
+          <div class="role-card-face role-card-front" id="role-card-front-content">
+            <!-- 렌더링 시 주입 -->
+          </div>
+        </div>
+      </div>
+
+      <button class="btn-wood" style="width: 100%; padding: 10px;" onclick="closeModal('modal-role-reveal')">목표 확인 완료 ⛏️</button>
+    </div>
+  </div>
+
+  <!-- 실물 룰: 금 카드 선택 드래프트 모달 -->
+  <div id="modal-claim-gold" class="modal-backdrop hidden">
+    <div class="parchment-card" style="max-width: 480px; text-align: center;">
+      <h3 style="color: #2c1a11; margin-bottom: 6px;">💰 광부 보상 분배 (실물 룰)</h3>
+      <p id="claim-gold-msg" style="font-size: 0.85rem; color: #4a2e1d; margin-bottom: 12px;"></p>
+      <div style="font-weight: bold; margin-bottom: 8px; color: #2c1a11; font-size: 0.85rem;">뽑힌 금 카드들 (원하는 1장을 고르세요):</div>
+      <div id="claim-gold-cards-container" style="display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-bottom: 14px;"></div>
+      <p style="font-size: 0.7rem; color: #8d6e63;">* 게임 최종 종료 전까지는 총 금덩이 수가 비밀이며, 카드 장수만 공개됩니다!</p>
+    </div>
+  </div>
+
+  <!-- 라운드 결과 / 최종 게임 종료 모달 -->
+  <div id="modal-round-result" class="modal-backdrop hidden">
+    <div class="parchment-card" style="max-width: 460px;">
+      <h2 id="result-title" style="text-align: center; margin-bottom: 6px; color: #2c1a11; font-size: 1.2rem;"></h2>
+      <p id="result-reason" style="text-align: center; font-size: 0.85rem; color: #4a2e1d; margin-bottom: 12px;"></p>
+      <div style="font-weight: bold; margin-bottom: 6px; color: #2c1a11; font-size: 0.85rem;">정체 공개 및 현황:</div>
+      <div id="result-rewards-list" style="display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px;"></div>
+      <button id="btn-next-round" class="btn-wood" style="width: 100%; padding: 10px;" onclick="requestNextRound()">다음 라운드 시작 ➡️</button>
+    </div>
+  </div>
+
+  <script>
+    let socket = null;
+    let myToken = localStorage.getItem('saboteur_token');
+    let myUser = null;
+    let currentGameState = null;
+    let selectedRoomIdToJoin = null;
+
+    let isRegisterMode = false;
+    let selectedCard = null;
+    let isCardRotated = false;
+    let actionTargetMode = null;
+    let isChatSplitOpen = false;
+    let lastRenderedRound = null;
+
+    const SERVER_URL = (window.location.protocol === 'file:' || !window.location.origin || window.location.origin === 'null')
+      ? 'http://localhost:3000'
+      : window.location.origin;
+
+    // 2:3 세로 직사각형 통로 카드 SVG 생성기 (width: w, height: h)
+    function generatePathSvg(open, deadEnd, isStart = false, isGold = false, isCoal = false, w = 52, h = 74) {
+      const [top, right, bottom, left] = open;
+      const cx = w / 2, cy = h / 2;
+      const stroke = w * 0.24;
+      const tunnel = deadEnd ? '#8d6e63' : '#baa68b';
+
+      let paths = '';
+      if (!deadEnd) {
+        if (top) paths += `<line x1="${cx}" y1="0" x2="${cx}" y2="${cy}" stroke="${tunnel}" stroke-width="${stroke}" stroke-linecap="round"/>`;
+        if (bottom) paths += `<line x1="${cx}" y1="${cy}" x2="${cx}" y2="${h}" stroke="${tunnel}" stroke-width="${stroke}" stroke-linecap="round"/>`;
+        if (left) paths += `<line x1="0" y1="${cy}" x2="${cx}" y2="${cy}" stroke="${tunnel}" stroke-width="${stroke}" stroke-linecap="round"/>`;
+        if (right) paths += `<line x1="${cx}" y1="${cy}" x2="${w}" y2="${cy}" stroke="${tunnel}" stroke-width="${stroke}" stroke-linecap="round"/>`;
+        paths += `<circle cx="${cx}" cy="${cy}" r="${w * 0.15}" fill="${tunnel}"/>`;
+      } else {
+        if (top) paths += `<line x1="${cx}" y1="0" x2="${cx}" y2="${cy * 0.65}" stroke="${tunnel}" stroke-width="${stroke}"/>`;
+        if (bottom) paths += `<line x1="${cx}" y1="${cy * 1.35}" x2="${cx}" y2="${h}" stroke="${tunnel}" stroke-width="${stroke}"/>`;
+        if (left) paths += `<line x1="0" y1="${cy}" x2="${cx * 0.65}" y2="${cy}" stroke="${tunnel}" stroke-width="${stroke}"/>`;
+        if (right) paths += `<line x1="${cx * 1.35}" y1="${cy}" x2="${w}" y2="${cy}" stroke="${tunnel}" stroke-width="${stroke}"/>`;
+        paths += `<circle cx="${cx}" cy="${cy}" r="${w * 0.12}" fill="#2c1a11" stroke="#c62828" stroke-width="2"/>`;
+      }
+
+      let extra = '';
+      if (isStart) {
+        extra = `<rect x="${cx - 6}" y="${cy * 0.35}" width="12" height="${cy * 1.3}" fill="none" stroke="#ffb300" stroke-width="2"/>
+                 <line x1="${cx - 6}" y1="${cy * 0.65}" x2="${cx + 6}" y2="${cy * 0.65}" stroke="#ffb300" stroke-width="2"/>
+                 <line x1="${cx - 6}" y1="${cy}" x2="${cx + 6}" y2="${cy}" stroke="#ffb300" stroke-width="2"/>
+                 <line x1="${cx - 6}" y1="${cy * 1.35}" x2="${cx + 6}" y2="${cy * 1.35}" stroke="#ffb300" stroke-width="2"/>`;
+      } else if (isGold) {
+        extra = `<text x="${cx}" y="${cy + 6}" text-anchor="middle" font-size="${w * 0.38}">💰</text>`;
+      } else if (isCoal) {
+        extra = `<text x="${cx}" y="${cy + 6}" text-anchor="middle" font-size="${w * 0.34}">🪨</text>`;
+      }
+
+      return `<svg width="100%" height="100%" viewBox="0 0 ${w} ${h}" style="background:#20120b; border-radius:3px; display:block;">
+        <rect width="${w}" height="${h}" fill="#20120b"/>
+        ${paths}
+        ${extra}
+      </svg>`;
+    }
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.innerText = msg;
+      t.classList.remove('hidden');
+      setTimeout(() => t.classList.add('hidden'), 3000);
+    }
+
+    function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
+    function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      if (myToken) verifySession();
+      else showView('auth-view');
+    });
+
+    function showView(viewId) {
+      ['auth-view', 'lobby-view', 'waiting-view', 'game-container-master'].forEach(id => {
+        document.getElementById(id).classList.add('hidden');
+      });
+      document.getElementById(viewId).classList.remove('hidden');
+      document.getElementById('header-user-info').classList.toggle('hidden', viewId === 'auth-view');
+      if (myUser) document.getElementById('header-nickname').innerText = myUser.nickname;
+    }
+
+    function initSocket() {
+      if (socket) socket.disconnect();
+      socket = io(SERVER_URL, { auth: { token: myToken } });
+
+      socket.on('room_list_update', renderRoomList);
+      socket.on('player_reaction', ({ userId, emoji }) => {
+        const row = document.getElementById(`player-card-${userId}`);
+        if (!row) return;
+        const b = document.createElement('div');
+        b.className = 'speech-bubble';
+        b.innerText = emoji;
+        row.appendChild(b);
+        setTimeout(() => b.remove(), 3000);
+      });
+
+      // 실시간 채팅 수신
+      socket.on('chat_message', (msg) => {
+        appendChatMessage(msg);
+      });
+
+      socket.on('game_state_update', handleGameStateUpdate);
+
+      // 비밀 지도 엿보기 수신 (길 모양 포함)
+      socket.on('secret_destination_peek', (data) => {
+        document.getElementById('peek-dest-label').innerText = data.destLabel;
+        const gBox = document.getElementById('map-peek-card-graphic');
+        const tBox = document.getElementById('map-peek-result-text');
+
+        if (data.card && data.card.open) {
+          gBox.innerHTML = generatePathSvg(data.card.open, false, false, data.isGold, !data.isGold, 68, 96);
+        }
+
+        if (data.isGold) {
+          tBox.innerHTML = `<span style="color:#d4af37;">💰 진짜 황금 광산 (십자 통로)</span>`;
+        } else {
+          tBox.innerHTML = `<span style="color:#8d6e63;">🪨 석탄 광산 (ㄱ자 코너 길)</span>`;
+        }
+        openModal('modal-map-peek');
+      });
+
+      socket.emit('get_room_list');
+    }
+
+    function toggleAuthMode() {
+      isRegisterMode = !isRegisterMode;
+      document.getElementById('nickname-group').classList.toggle('hidden', !isRegisterMode);
+      document.getElementById('btn-login-submit').innerText = isRegisterMode ? '가입 완료' : '로그인';
+      document.getElementById('btn-toggle-register').innerText = isRegisterMode ? '로그인으로 전환' : '새 광부 등록';
+    }
+
+    async function submitAuth() {
+      const username = document.getElementById('auth-username').value.trim();
+      const password = document.getElementById('auth-password').value;
+      const nickname = document.getElementById('auth-nickname').value.trim();
+      const endpoint = isRegisterMode ? '/api/register' : '/api/login';
+      const payload = isRegisterMode ? { username, password, nickname } : { username, password };
+
+      try {
+        const res = await fetch(SERVER_URL + endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.success) {
+          myToken = data.token;
+          myUser = data.user;
+          localStorage.setItem('saboteur_token', myToken);
+          initSocket();
+          showView('lobby-view');
+        } else showToast(data.message || '인증 실패');
+      } catch (err) {
+        showToast('서버와 통신할 수 없습니다.');
+      }
+    }
+
+    async function verifySession() {
+      try {
+        const res = await fetch(SERVER_URL + '/api/me', { headers: { Authorization: `Bearer ${myToken}` } });
+        const data = await res.json();
+        if (data.success) {
+          myUser = data.user;
+          initSocket();
+          showView('lobby-view');
+        } else logout();
+      } catch (e) {
+        showView('auth-view');
+      }
+    }
+
+    function logout() {
+      localStorage.removeItem('saboteur_token');
+      myToken = null;
+      myUser = null;
+      if (socket) socket.disconnect();
+      showView('auth-view');
+    }
+
+    function refreshRooms() { socket && socket.emit('get_room_list'); }
+
+    function renderRoomList(rooms) {
+      const container = document.getElementById('room-list-container');
+      container.innerHTML = '';
+      if (!rooms?.length) {
+        container.innerHTML = `<div style="grid-column: 1/-1; text-align:center; padding: 30px; color:#8d6e63; font-size:0.85rem;">개설된 광산이 없습니다.</div>`;
+        return;
+      }
+      rooms.forEach(r => {
+        const card = document.createElement('div');
+        card.className = 'room-card';
+        card.innerHTML = `
+          <div>
+            <div class="room-name">${r.name}</div>
+            <div style="font-size:0.8rem; color:#a1887f; margin-bottom:4px;">방장: ${r.hostName} | 광부: ${r.playerCount}명 (관전: ${r.observerCount||0}명)</div>
+            <div style="font-size:0.75rem; color:#bcaaa4; margin-bottom:8px;">지도 카드: ${r.mapCardCount}장 모드</div>
+            <div style="font-size:0.75rem; color:${r.status === 'WAITING' ? '#81c784' : '#ffb74d'}; margin-bottom:8px;">
+              ${r.status === 'WAITING' ? '대기 중 (3인 이상 시 시작)' : '탐사 진행 중'}
+            </div>
+          </div>
+          <button class="btn-wood" onclick="openJoinChoiceModal('${r.id}')">입장하기 ⛏️</button>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    function openJoinChoiceModal(roomId) {
+      selectedRoomIdToJoin = roomId;
+      openModal('modal-join-choice');
+    }
+
+    function confirmJoinRoom(roleType) {
+      closeModal('modal-join-choice');
+      if (!selectedRoomIdToJoin) return;
+      socket.emit('join_room', { roomId: selectedRoomIdToJoin, roleType }, (res) => {
+        if (!res.success) showToast(res.message);
+      });
+    }
+
+    function showCreateRoomModal() { openModal('modal-create-room'); }
+    function submitCreateRoom() {
+      const roomName = document.getElementById('create-room-name').value;
+      socket.emit('create_room', { roomName }, (res) => {
+        if (res.success) closeModal('modal-create-room');
+        else showToast(res.message);
+      });
+    }
+
+    function updateRoomMapSettings() {
+      const val = document.getElementById('select-map-count').value;
+      socket.emit('update_room_settings', { mapCardCount: val });
+    }
+
+    function leaveRoom() {
+      socket.emit('leave_room', () => {
+        currentGameState = null;
+        showView('lobby-view');
+        refreshRooms();
+      });
+    }
+
+    function requestStartGame() {
+      socket.emit('start_game', (res) => { if (!res.success) showToast(res.message); });
+    }
+
+    function requestNextRound() {
+      socket.emit('next_round', (res) => { if (!res.success) showToast(res.message); });
+    }
+
+    function sendEmojiReaction(emoji) {
+      socket && socket.emit('send_reaction', { emoji });
+    }
+
+    // 상하 분할 채팅창 토글 (사용자 그림 100% 반영)
+    function toggleChatSplit() {
+      isChatSplitOpen = !isChatSplitOpen;
+      const master = document.getElementById('game-container-master');
+      master.classList.toggle('chat-split-active', isChatSplitOpen);
+      if (isChatSplitOpen) {
+        document.getElementById('chat-input-text').focus();
+        const c = document.getElementById('chat-messages-container');
+        c.scrollTop = c.scrollHeight;
+      }
+    }
+
+    function sendChatMessage() {
+      const input = document.getElementById('chat-input-text');
+      const text = input.value.trim();
+      if (!text) return;
+      socket.emit('send_chat', { text });
+      input.value = '';
+    }
+
+    function appendChatMessage(msg) {
+      const c = document.getElementById('chat-messages-container');
+      const line = document.createElement('div');
+      line.className = 'chat-msg-line';
+      line.innerHTML = `
+        <span class="chat-msg-sender ${msg.isObserver ? 'is-obs' : ''}">${msg.senderNickname}:</span>
+        <span class="chat-msg-text">${escapeHtml(msg.text)}</span>
+        <span class="chat-msg-time">${msg.time}</span>
+      `;
+      c.appendChild(line);
+      c.scrollTop = c.scrollHeight;
+    }
+
+    function escapeHtml(text) {
+      const m = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+      return text.replace(/[&<>"']/g, k => m[k]);
+    }
+
+    function handleGameStateUpdate(state) {
+      currentGameState = state;
+
+      if (state.status === 'PLAYING') {
+        closeModal('modal-round-result');
+        closeModal('modal-claim-gold');
+        cancelCardSelection();
+
+        // 라운드 바뀔 때 역할 배분 3D 플립 애니메이션 팝업 트리거
+        if (lastRenderedRound !== state.round && !state.isObserver) {
+          lastRenderedRound = state.round;
+          triggerRoleFlipReveal(state);
+        }
+      }
+
+      if (state.status === 'WAITING') {
+        renderWaitingRoom(state);
+      } else {
+        renderGameView(state);
+      }
+
+      if (state.status === 'GOLD_DRAFT') {
+        renderGoldDraftModal(state);
+      } else {
+        closeModal('modal-claim-gold');
+      }
+
+      if (state.status === 'ROUND_END' || state.status === 'GAME_END') {
+        renderRoundResultModal(state);
+      }
+    }
+
+    // 역할 플립 팝업 연출
+    function triggerRoleFlipReveal(state) {
+      const me = state.players.find(p => p.userId === myUser.userId);
+      if (!me || !me.role) return;
+
+      const isMiner = me.role === 'MINER';
+      const front = document.getElementById('role-card-front-content');
+      front.innerHTML = `
+        <span style="font-size:3rem;">${isMiner ? '⛏️' : '💣'}</span>
+        <h2 style="color:${isMiner ? 'var(--miner-blue)' : 'var(--saboteur-red)'}; margin: 8px 0;">
+          ${isMiner ? '광부' : '방해꾼'}
+        </h2>
+        <p style="font-size:0.8rem; color:#4a2e1d; line-height:1.3;">
+          ${isMiner ? '동료들과 함께 통로를 파서 목적지의 진짜 금광을 연결하세요!' : '광부들을 은밀히 방해하여 덱이 다 떨어질 때까지 금광을 막으세요!'}
+        </p>
+      `;
+      openModal('modal-role-reveal');
+    }
+
+    function renderWaitingRoom(state) {
+      showView('waiting-view');
+      document.getElementById('waiting-room-name').innerText = state.roomName;
+      document.getElementById('waiting-room-info').innerText = `참가 광부: ${state.players.length}명 | 관전: ${state.observers?.length || 0}명 | 방장: ${state.players.find(p=>p.isHost)?.nickname}`;
+
+      const isHost = state.hostId === myUser.userId;
+      const hostMapBox = document.getElementById('host-map-settings');
+      hostMapBox.style.display = isHost ? 'block' : 'none';
+      if (isHost) document.getElementById('select-map-count').value = state.mapCardCount || 6;
+
+      const list = document.getElementById('waiting-player-list');
+      list.innerHTML = '';
+      state.players.forEach(p => {
+        const row = document.createElement('div');
+        row.style.padding = '5px 8px';
+        row.style.background = '#faf4e8';
+        row.style.border = '1px solid #bcaaa4';
+        row.style.borderRadius = '4px';
+        row.style.display = 'flex';
+        row.style.justifyContent = 'space-between';
+        row.innerHTML = `<span>⛏️ ${p.nickname} ${p.isHost ? '👑' : ''} ${p.userId === myUser.userId ? '(나)' : ''}</span><span style="font-size:0.75rem; color:#8d6e63;">광부 참가</span>`;
+        list.appendChild(row);
+      });
+
+      state.observers?.forEach(o => {
+        const row = document.createElement('div');
+        row.style.padding = '5px 8px';
+        row.style.background = '#e1f5fe';
+        row.style.border = '1px solid #81d4fa';
+        row.style.borderRadius = '4px';
+        row.style.display = 'flex';
+        row.style.justifyContent = 'space-between';
+        row.innerHTML = `<span>👁️ ${o.nickname} ${o.userId === myUser.userId ? '(나)' : ''}</span><span style="font-size:0.75rem; color:#0288d1;">관전자</span>`;
+        list.appendChild(row);
+      });
+
+      const startBtn = document.getElementById('btn-start-game');
+      startBtn.style.display = isHost ? 'block' : 'none';
+      const count = state.players.length;
+      startBtn.disabled = count < 3 || count > 10;
+      startBtn.innerText = count < 3 ? `3인 이상 모여야 시작 가능 (현재 ${count}명)` : `탐사 시작 ⛏️ (${count}인 확정)`;
+    }
+
+    function renderGameView(state) {
+      showView('game-container-master');
+
+      document.getElementById('game-round-info').innerText = `${state.round} / ${state.maxRounds} 라운드`;
+      document.getElementById('game-deck-count').innerText = state.deckCount;
+      document.getElementById('game-last-action').innerText = state.lastAction?.message || '';
+
+      document.getElementById('discard-count').innerText = state.discardCount || 0;
+
+      const isMyTurn = Boolean(!state.isObserver && state.currentTurnUid && String(state.currentTurnUid) === String(myUser.userId));
+      const turnBadge = document.getElementById('game-turn-badge');
+      const curP = state.players.find(p => String(p.userId) === String(state.currentTurnUid));
+
+      if (state.isObserver) {
+        turnBadge.className = 'turn-indicator turn-other';
+        turnBadge.innerText = `[관전 중] ${curP?.nickname || '상대'}의 턴`;
+      } else {
+        turnBadge.className = isMyTurn ? 'turn-indicator turn-mine' : 'turn-indicator turn-other';
+        turnBadge.innerText = isMyTurn ? '내 턴입니다!' : `${curP?.nickname || '상대'}의 턴`;
+      }
+
+      const me = state.players.find(p => p.userId === myUser.userId);
+      const rBadge = document.getElementById('my-role-badge');
+      if (state.isObserver) {
+        rBadge.className = 'role-badge';
+        rBadge.style.background = '#0288d1';
+        rBadge.innerText = '관전자 👁️';
+        document.getElementById('my-gold-total').innerText = '-';
+        document.getElementById('my-gold-card-count').innerText = '-';
+      } else {
+        if (me?.role) {
+          rBadge.className = me.role === 'MINER' ? 'role-badge role-miner' : 'role-badge role-saboteur';
+          rBadge.innerText = me.role === 'MINER' ? '광부 ⛏️' : '방해꾼 💣';
+        }
+        document.getElementById('my-gold-total').innerText = me?.totalGold || 0;
+        document.getElementById('my-gold-card-count').innerText = me?.goldCardCount || 0;
+      }
+
+      renderPlayersSidebar(state, isMyTurn);
+      renderBoard(state);
+      renderMyHand(me?.hand || [], isMyTurn);
+    }
+
+    function renderPlayersSidebar(state, isMyTurn) {
+      const container = document.getElementById('players-list');
+      container.innerHTML = '';
+
+      state.players.forEach(p => {
+        const isCur = String(p.userId) === String(state.currentTurnUid);
+        const row = document.createElement('div');
+        row.id = `player-card-${p.userId}`;
+        row.className = `player-row ${isCur ? 'is-current-turn' : ''}`;
+        if (actionTargetMode === 'SELECT_PLAYER_BLOCK' || actionTargetMode === 'SELECT_PLAYER_FIX') {
+          row.classList.add('targetable');
+          row.onclick = () => selectPlayerTarget(p.userId);
+        }
+
+        const goldInfoHtml = p.totalGold !== null
+          ? `<span style="color:var(--gold); font-size:0.75rem;">금: ${p.totalGold}개</span>`
+          : `<span style="color:#bcaaa4; font-size:0.72rem;">금 카드: ${p.goldCardCount}장</span>`;
+
+        // 고장난 도구 ❌ 오버레이 렌더링
+        row.innerHTML = `
+          <div style="display:flex; justify-content:space-between;">
+            <span style="font-weight:bold; color:var(--parchment);">${p.nickname} ${p.userId === myUser.userId ? '(나)' : ''} ${p.role !== 'HIDDEN' ? `[${p.role==='MINER'?'광부':'사보'}]` : ''}</span>
+            ${goldInfoHtml}
+          </div>
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div class="tool-box">
+              <span class="tool-icon-wrapper ${p.tools.pickaxe ? '' : 'broken'}">⛏️</span>
+              <span class="tool-icon-wrapper ${p.tools.lantern ? '' : 'broken'}">🏮</span>
+              <span class="tool-icon-wrapper ${p.tools.cart ? '' : 'broken'}">🛒</span>
+            </div>
+            <span style="font-size:0.7rem; color:#bcaaa4;">패: ${p.cardCount}장</span>
+          </div>
+        `;
+        container.appendChild(row);
+      });
+
+      // 관전자 목록 표시
+      if (state.observers?.length > 0) {
+        const obsHeader = document.createElement('div');
+        obsHeader.style.fontSize = '0.7rem';
+        obsHeader.style.color = '#81d4fa';
+        obsHeader.style.marginTop = '4px';
+        obsHeader.innerText = `관전: ${state.observers.map(o=>o.nickname).join(', ')}`;
+        container.appendChild(obsHeader);
+      }
+    }
+
+    function renderBoard(state) {
+      const grid = document.getElementById('board-grid');
+      grid.innerHTML = '';
+
+      for (let r = 0; r < 9; r++) {
+        for (let c = 0; c < 11; c++) {
+          const cell = document.createElement('div');
+          cell.className = 'board-cell';
+          const tile = state.board ? state.board[r][c] : null;
+
+          if (tile) {
+            if (tile.type === 'START') {
+              cell.innerHTML = generatePathSvg(tile.open, tile.deadEnd, true);
+            } else if (tile.type === 'DESTINATION_HIDDEN') {
+              const dInfo = state.destinations?.find(d => d.id === tile.destId);
+              let tag = dInfo?.inspectedBy ? `<div class="dest-inspected-tag">👀 ${dInfo.inspectedBy}</div>` : '';
+              cell.innerHTML = `<div class="dest-card-hidden ${actionTargetMode === 'SELECT_DEST_MAP' ? 'clickable-dest' : ''}"><span style="font-size:1.1rem;">?</span>${tag}</div>`;
+              if (actionTargetMode === 'SELECT_DEST_MAP') cell.onclick = () => selectDestinationTarget(tile.destId);
+            } else if (tile.type === 'PATH') {
+              cell.innerHTML = generatePathSvg(tile.open, tile.deadEnd, false, tile.isGold, tile.isCoal);
+              if (actionTargetMode === 'SELECT_TILE_ROCKFALL') {
+                cell.classList.add('rockfall-target');
+                cell.onclick = () => selectRockfallTarget(r, c);
+              }
+            }
+          } else {
+            if (actionTargetMode === 'PLAY_PATH') {
+              cell.classList.add('valid-target');
+              cell.onclick = () => placePathAt(r, c);
+            }
+          }
+          grid.appendChild(cell);
+        }
+      }
+    }
+
+    function renderMyHand(hand, isMyTurn) {
+      const container = document.getElementById('my-hand-cards');
+      container.innerHTML = '';
+      if (!hand?.length) {
+        container.innerHTML = `<div style="color:#8d6e63; font-size:0.75rem; padding: 6px;">손패가 없습니다.</div>`;
+        return;
+      }
+
+      hand.forEach(card => {
+        const el = document.createElement('div');
+        const isSel = selectedCard?.id === card.id;
+        el.className = `hand-card-item ${isSel ? 'selected' : ''}`;
+        
+        let graphic = '';
+        if (card.type === 'PATH') {
+          const open = isSel && isCardRotated ? [card.open[2], card.open[3], card.open[0], card.open[1]] : card.open;
+          graphic = generatePathSvg(open, card.deadEnd, false, false, false, 48, 64);
+        } else {
+          let icon = '🔨';
+          if (card.action === 'FIX') icon = '🔧';
+          else if (card.action === 'MAP') icon = '🗺️';
+          else if (card.action === 'TORN_MAP') icon = '📜';
+          else if (card.action === 'ROCKFALL') icon = '🪨';
+          graphic = `<span style="font-size:1.6rem;">${icon}</span>`;
+        }
+
+        el.innerHTML = `
+          <div class="card-name-mini" title="${card.name}">${card.name}</div>
+          <div class="card-graphic-container">${graphic}</div>
+          <div style="font-size:0.55rem; text-align:center; color:#5d381e;">${card.type === 'PATH' ? '통로' : '행동'}</div>
+        `;
+        el.onclick = () => handleCardClick(card, isMyTurn);
+        container.appendChild(el);
+      });
+    }
+
+    function handleCardClick(card, isMyTurn) {
+      if (!isMyTurn) return showToast('현재 내 턴이 아닙니다.');
+      if (selectedCard?.id === card.id) return cancelCardSelection();
+
+      selectedCard = card;
+      isCardRotated = false;
+      document.getElementById('selected-card-controls').classList.remove('hidden');
+      document.getElementById('btn-rotate-card').style.display = card.type === 'PATH' ? 'inline-block' : 'none';
+
+      if (card.type === 'PATH') {
+        actionTargetMode = 'PLAY_PATH';
+        showToast('보드의 빈 칸을 터치하여 길을 놓으세요.');
+      } else if (card.action === 'BLOCK') {
+        actionTargetMode = 'SELECT_PLAYER_BLOCK';
+        showToast(`우측에서 [${card.tool}]를 파손시킬 광부를 선택하세요.`);
+      } else if (card.action === 'FIX') {
+        actionTargetMode = 'SELECT_PLAYER_FIX';
+        showToast('우측에서 수리해 줄 광부를 선택하세요.');
+      } else if (card.action === 'MAP') {
+        actionTargetMode = 'SELECT_DEST_MAP';
+        showToast('비밀을 확인할 목적지(?)를 선택하세요.');
+      } else if (card.action === 'ROCKFALL') {
+        actionTargetMode = 'SELECT_TILE_ROCKFALL';
+        showToast('파괴할 통로 타일을 선택하세요.');
+      } else if (card.action === 'TORN_MAP') {
+        actionTargetMode = null;
+        showToast('찢어진 지도는 사용할 수 없습니다. [버리기 🗑️]만 가능합니다.');
+      }
+
+      renderBoard(currentGameState);
+      renderPlayersSidebar(currentGameState, isMyTurn);
+      renderMyHand(currentGameState.players.find(p=>p.userId===myUser.userId)?.hand || [], isMyTurn);
+    }
+
+    function toggleRotateSelectedCard() {
+      if (!selectedCard || selectedCard.type !== 'PATH') return;
+      isCardRotated = !isCardRotated;
+      renderMyHand(currentGameState.players.find(p=>p.userId===myUser.userId)?.hand || [], true);
+    }
+
+    function cancelCardSelection() {
+      selectedCard = null;
+      isCardRotated = false;
+      actionTargetMode = null;
+      document.getElementById('selected-card-controls').classList.add('hidden');
+      if (currentGameState) {
+        renderBoard(currentGameState);
+        renderPlayersSidebar(currentGameState, true);
+        renderMyHand(currentGameState.players.find(p=>p.userId===myUser.userId)?.hand || [], true);
+      }
+    }
+
+    function discardSelectedCard() {
+      if (!selectedCard) return;
+      socket.emit('discard_card', { cardId: selectedCard.id }, (res) => {
+        if (res.success) cancelCardSelection();
+        else showToast(res.message);
+      });
+    }
+
+    function placePathAt(row, col) {
+      if (!selectedCard || selectedCard.type !== 'PATH') return;
+      socket.emit('play_path_card', { cardId: selectedCard.id, row, col, isRotated: isCardRotated }, (res) => {
+        if (res.success) cancelCardSelection();
+        else showToast('배치 실패: ' + res.message);
+      });
+    }
+
+    function selectPlayerTarget(targetUserId) {
+      if (!selectedCard || selectedCard.type !== 'ACTION') return;
+      socket.emit('play_action_card', { cardId: selectedCard.id, targetUserId }, (res) => {
+        if (res.success) cancelCardSelection();
+        else showToast(res.message);
+      });
+    }
+
+    function selectDestinationTarget(destId) {
+      if (!selectedCard || selectedCard.action !== 'MAP') return;
+      socket.emit('play_action_card', { cardId: selectedCard.id, destId }, (res) => {
+        if (res.success) cancelCardSelection();
+        else showToast(res.message);
+      });
+    }
+
+    function selectRockfallTarget(row, col) {
+      if (!selectedCard || selectedCard.action !== 'ROCKFALL') return;
+      socket.emit('play_action_card', { cardId: selectedCard.id, rockfallRow: row, rockfallCol: col }, (res) => {
+        if (res.success) cancelCardSelection();
+        else showToast(res.message);
+      });
+    }
+
+    // 버린 더미 확인 (공식 룰: 뒷면으로 버림)
+    function showDiscardModal() {
+      const box = document.getElementById('discard-detail-content');
+      box.innerHTML = `
+        <div style="font-size:2rem; margin-bottom:8px;">🗃️</div>
+        <div style="font-weight:bold; color:#2c1a11; font-size:1rem; margin-bottom:6px;">공식 룰: 비공개 버린 카드 더미</div>
+        <p style="font-size:0.8rem; color:#4a2e1d; line-height:1.4;">
+          사보타지 공식 규칙에 따라 카드는 <strong>뒷면으로 버려지므로</strong> 어떤 카드가 버려졌는지는 비밀입니다.
+        </p>
+        <div style="font-size:0.8rem; color:#8d6e63; margin-top:8px;">
+          ${currentGameState?.lastDiscardedText ? `최근 알림: ${currentGameState.lastDiscardedText}` : ''}
+        </div>
+        <div style="font-weight:bold; color:var(--gold-dark); margin-top:6px;">누적 버린 카드 수: ${currentGameState?.discardCount || 0}장</div>
+      `;
+      openModal('modal-discard-detail');
+    }
+
+    function renderGoldDraftModal(state) {
+      const draft = state.goldDraft;
+      if (!draft) return;
+
+      const currentDrafter = state.players.find(p => p.userId === draft.currentUid);
+      const isMyTurnToPick = draft.isMyPick;
+
+      document.getElementById('claim-gold-msg').innerText = isMyTurnToPick
+        ? '당신의 선택 순서입니다! 원하는 금 카드를 1장 고르세요.'
+        : `현재 ${currentDrafter?.nickname || '광부'} 님이 금 카드를 고르는 중입니다...`;
+
+      const poolContainer = document.getElementById('claim-gold-cards-container');
+      poolContainer.innerHTML = '';
+
+      draft.pool.forEach(card => {
+        const cardEl = document.createElement('div');
+        cardEl.className = 'gold-draft-card';
+        cardEl.innerHTML = `
+          <div style="font-size:1.8rem;">💰</div>
+          <div style="font-size:1.1rem; font-weight:bold; color:#e65100;">${isMyTurnToPick ? `${card.value}덩이` : '???'}</div>
+          <div style="font-size:0.65rem; color:#8d6e63;">금 카드</div>
+        `;
+
+        if (isMyTurnToPick) {
+          cardEl.onclick = () => {
+            socket.emit('claim_gold_card', { cardId: card.id }, (res) => {
+              if (res.success) showToast(`${card.value}덩이 금 카드를 획득했습니다! 💰`);
+              else showToast(res.message);
+            });
+          };
+        } else {
+          cardEl.style.cursor = 'not-allowed';
+          cardEl.style.opacity = '0.7';
+        }
+        poolContainer.appendChild(cardEl);
+      });
+
+      openModal('modal-claim-gold');
+    }
+
+    function renderRoundResultModal(state) {
+      const res = state.roundResult;
+      if (!res) return;
+
+      const titleEl = document.getElementById('result-title');
+      titleEl.innerHTML = res.winningTeam === 'MINERS'
+        ? `<span style="color:var(--miner-blue);">⛏️ 광부단 승리!</span>`
+        : `<span style="color:var(--saboteur-red);">💣 방해꾼 승리!</span>`;
+      document.getElementById('result-reason').innerText = res.reason;
+
+      const list = document.getElementById('result-rewards-list');
+      list.innerHTML = '';
+
+      const sortedPlayers = [...state.players].sort((a, b) => (b.totalGold || 0) - (a.totalGold || 0));
+
+      sortedPlayers.forEach((p, rank) => {
+        const item = document.createElement('div');
+        item.style.padding = '5px 8px';
+        item.style.background = '#faf4e8';
+        item.style.border = '1px solid #bcaaa4';
+        item.style.borderRadius = '4px';
+        item.style.display = 'flex';
+        item.style.justifyContent = 'space-between';
+        item.style.fontSize = '0.78rem';
+
+        const scoreText = res.isFinalRound
+          ? `<strong style="color:var(--gold-dark);">${rank+1}위: 총 ${p.totalGold || 0}개</strong>`
+          : `금 카드 ${p.goldCardCount}장 보유`;
+
+        item.innerHTML = `
+          <span><strong>${p.nickname}</strong> [${p.role === 'MINER' ? '광부' : '방해꾼'}]</span>
+          <span>${scoreText}</span>
+        `;
+        list.appendChild(item);
+      });
+
+      const nextBtn = document.getElementById('btn-next-round');
+      const isHost = state.hostId === myUser.userId;
+      nextBtn.style.display = isHost ? 'block' : 'none';
+      if (res.isFinalRound) {
+        nextBtn.innerText = '최종 우승 집계 완료 🏆 (로비로)';
+        nextBtn.onclick = () => leaveRoom();
+      } else {
+        nextBtn.innerText = '다음 라운드 시작 ➡️';
+        nextBtn.onclick = () => requestNextRound();
+      }
+
+      openModal('modal-round-result');
+    }
+  </script>
+</body>
+</html>
